@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบคัดกรองสุขภาพ (สแกนบัตรผ่านกล้องมือถือ)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>body { font-family: 'Prompt', sans-serif; }</style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+
+  <header class="bg-teal-700 text-white p-4 shadow-md sticky top-0 z-50">
+    <div class="max-w-xl mx-auto flex justify-between items-center">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-camera text-2xl text-teal-200"></i>
+        <h1 class="text-base font-bold">คัดกรองสุขภาพ (Mobile OCR)</h1>
+      </div>
+      <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 shadow">
+        <i class="fa-solid fa-file-excel"></i> Excel
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-xl mx-auto p-4 space-y-4">
+
+    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 text-center space-y-3">
+      <h2 class="text-xs font-bold text-teal-800 flex items-center justify-center gap-1.5">
+        <i class="fa-solid fa-id-card text-teal-600"></i> สแกนบัตรประชาชนด้วยกล้องมือถือ
+      </h2>
+      
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden" onchange="processCardImage(event)">
+      
+      <button onclick="document.getElementById('cameraInput').click()" class="w-full bg-teal-600 active:bg-teal-700 text-white font-medium py-3 px-4 rounded-xl shadow flex items-center justify-center gap-2 text-sm">
+        <i class="fa-solid fa-camera text-lg"></i> ถ่ายภาพบัตรประชาชน
+      </button>
+      
+      <div id="ocrLoader" class="hidden text-xs text-amber-600 font-medium animate-pulse">
+        <i class="fa-solid fa-spinner fa-spin"></i> กำลังอ่านข้อมูลจากภาพถ่าย...
+      </div>
+      <p class="text-[11px] text-slate-400">* ถ่ายภาพบัตรให้ชัดเจนและมีแสงสว่างเพียงพอเพื่อความแม่นยำ</p>
+    </div>
+
+    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-4">
+      <div class="border-b pb-2 flex justify-between items-center">
+        <h3 class="text-xs font-bold text-slate-700">1. ข้อมูลส่วนบุคคล (ตรวจสอบ/แก้ไขได้)</h3>
+        <span class="text-[10px] text-teal-600 font-medium">* พิมพ์แก้ไขได้หากสแกนไม่ตรง</span>
+      </div>
+
+      <form id="mobileForm" onsubmit="saveRecord(event)" class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-slate-600 mb-1">วันที่ตรวจ *</label>
+            <input type="date" id="checkDate" required class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">HN / เลขบัตร *</label>
+            <input type="text" id="hn" placeholder="ดึงจากกล้อง หรือพิมพ์ใหม่" required class="w-full p-2 border rounded-lg bg-teal-50/30 font-mono">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-600 mb-1">ชื่อ-สกุล *</label>
+          <input type="text" id="fullName" placeholder="ดึงจากกล้อง หรือพิมพ์ใหม่" required class="w-full p-2 border rounded-lg bg-teal-50/30 font-medium">
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="block text-slate-600 mb-1">หมู่บ้าน</label>
+            <input type="text" id="village" placeholder="เช่น บ้านหนองขาม" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">หมู่ที่</label>
+            <input type="number" id="moo" placeholder="1" class="w-full p-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="border-b pb-2 pt-2">
+          <h3 class="text-xs font-bold text-slate-700">2. ผลการตรวจสุขภาพ</h3>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="block text-slate-600 mb-1">น้ำหนัก (กก.)</label>
+            <input type="number" id="weight" step="0.1" placeholder="60" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">ส่วนสูง (ซม.)</label>
+            <input type="number" id="height" step="0.5" placeholder="165" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">รอบเอว (ซม.)</label>
+            <input type="number" id="waist" step="0.5" placeholder="75" class="w-full p-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="block text-slate-600 mb-1">ความดันบน</label>
+            <input type="number" id="sbp" placeholder="120" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">ความดันล่าง</label>
+            <input type="number" id="dbp" placeholder="80" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">ค่าน้ำตาล</label>
+            <input type="number" id="fbs" placeholder="95" class="w-full p-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-600 mb-1">โรคประจำตัว</label>
+          <input type="text" id="disease" placeholder="ระบุโรคประจำตัว (ถ้ามี)" class="w-full p-2 border rounded-lg">
+        </div>
+
+        <button type="submit" class="w-full bg-teal-600 active:bg-teal-700 text-white font-medium py-3 rounded-xl shadow text-sm mt-2">
+          <i class="fa-solid fa-save"></i> บันทึกข้อมูล
+        </button>
+      </form>
+    </div>
+
+    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="text-xs font-bold text-slate-700">รายการที่บันทึกแล้ว</h3>
+        <span id="recordCount" class="text-xs text-teal-600 font-semibold">0 รายการ</span>
+      </div>
+      <div id="dataList" class="divide-y text-xs text-slate-600"></div>
+    </div>
+
+  </main>
+
+  <script>
+    let records = [];
+
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById('checkDate').value = new Date().toISOString().split('T')[0];
+    });
+
+    // --- OCR Functionality using Tesseract.js ---
+    async function processCardImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const loader = document.getElementById('ocrLoader');
+      loader.classList.remove('hidden');
+
+      try {
+        const result = await Tesseract.recognize(file, 'tha+eng', {
+          logger: m => console.log(m)
+        });
+
+        const text = result.data.text;
+        
+        // Extract 13-digit National ID / HN
+        const cidMatch = text.match(/\b\d{1}\s?\d{4}\s?\d{5}\s?\d{2}\s?\d{1}\b/) || text.match(/\b\d{13}\b/);
+        if (cidMatch) {
+          document.getElementById('hn').value = cidMatch[0].replace(/\s+/g, '');
+        }
+
+        // Extract Name (Basic Pattern Matching for Thai Titles)
+        const nameMatch = text.match(/(นาย|นาง|นางสาว|เด็กชาย|เด็กหญิง)\s*([\u0E00-\u0E7F]+)\s+([\u0E00-\u0E7F]+)/);
+        if (nameMatch) {
+          document.getElementById('fullName').value = `${nameMatch[1]}${nameMatch[2]} ${nameMatch[3]}`;
+        }
+
+        alert("สแกนข้อมูลจากบัตรสำเร็จ! กรุณาตรวจสอบและแก้ไขข้อมูลก่อนกดบันทึก");
+
+      } catch (err) {
+        alert("ไม่สามารถอ่านข้อมูลจากภาพถ่ายได้ กรุณากรอกข้อมูลด้วยตนเอง");
+        console.error(err);
+      } finally {
+        loader.classList.add('hidden');
+      }
+    }
+
+    function saveRecord(e) {
+      e.preventDefault();
+      const record = {
+        checkDate: document.getElementById('checkDate').value,
+        fullName: document.getElementById('fullName').value,
+        hn: document.getElementById('hn').value,
+        village: document.getElementById('village').value,
+        moo: document.getElementById('moo').value,
+        weight: document.getElementById('weight').value,
+        height: document.getElementById('height').value,
+        waist: document.getElementById('waist').value,
+        sbp: document.getElementById('sbp').value,
+        dbp: document.getElementById('dbp').value,
+        fbs: document.getElementById('fbs').value,
+        disease: document.getElementById('disease').value || 'ไม่มี'
+      };
+
+      records.unshift(record);
+      renderList();
+      document.getElementById('mobileForm').reset();
+      document.getElementById('checkDate').value = new Date().toISOString().split('T')[0];
+    }
+
+    function renderList() {
+      const listContainer = document.getElementById('dataList');
+      listContainer.innerHTML = '';
+
+      records.forEach(r => {
+        const item = document.createElement('div');
+        item.className = "py-2.5 flex justify-between items-center";
+        item.innerHTML = `
+          <div>
+            <div class="font-medium text-slate-800">${r.fullName}</div>
+            <div class="text-[11px] text-slate-400 font-mono">HN: ${r.hn} | ${r.village} ม.${r.moo}</div>
+          </div>
+          <div class="text-right">
+            <span class="font-semibold text-teal-700">${r.sbp}/${r.dbp}</span>
+            <span class="text-[11px] block text-slate-500">FBS: ${r.fbs}</span>
+          </div>
+        `;
+        listContainer.appendChild(item);
+      });
+
+      document.getElementById('recordCount').innerText = `${records.length} รายการ`;
+    }
+
+    function exportToExcel() {
+      if (records.length === 0) return alert("ไม่มีข้อมูลสำหรับส่งออก");
+
+      const exportData = records.map(r => ({
+        'วันที่ตรวจ': r.checkDate,
+        'ชื่อ-สกุล': r.fullName,
+        'HN': r.hn,
+        'หมู่บ้าน': r.village,
+        'หมู่ที่': r.moo,
+        'น้ำหนัก': r.weight,
+        'ส่วนสูง': r.height,
+        'รอบเอว': r.waist,
+        'ความดันตัวบน': r.sbp,
+        'ความดันตัวล่าง': r.dbp,
+        'ค่าน้ำตาล': r.fbs,
+        'โรคประจำตัว': r.disease
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "ตรวจสุขภาพ");
+      XLSX.writeFile(wb, `ตรวจสุขภาพ_Mobile_${new Date().toISOString().split('T')[0]}.xlsx`);
+    }
+  </script>
+
+</body>
+</html>
